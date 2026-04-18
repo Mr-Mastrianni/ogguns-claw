@@ -57,8 +57,10 @@ export function createBot(): Bot {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       logger.error("Error processing message", { userId, error: errorMessage });
+      // Send actual error to user for debugging (safe to expose — no secrets)
       await ctx.reply(
-        "❌ Something went wrong processing your message. Please try again."
+        `❌ Error: ${errorMessage}\n\n_If this persists, check Railway logs or try a different LLM model._`,
+        { parse_mode: "Markdown" }
       );
     }
   });
