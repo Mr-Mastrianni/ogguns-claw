@@ -3,6 +3,9 @@ import { z } from "zod";
 
 dotenv.config();
 
+// Auto-detect Railway: if RAILWAY_PUBLIC_DOMAIN exists, default to webhook mode
+const isRailway = !!process.env.RAILWAY_PUBLIC_DOMAIN;
+
 const configSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(1, "TELEGRAM_BOT_TOKEN is required"),
   OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY is required"),
@@ -33,7 +36,9 @@ const configSchema = z.object({
       }
       return num;
     }),
-  BOT_MODE: z.enum(["webhook", "polling"]).default("polling"),
+  BOT_MODE: z
+    .enum(["webhook", "polling"])
+    .default(isRailway ? "webhook" : "polling"),
   WEBHOOK_URL: z.string().optional(),
   WEBHOOK_PATH: z.string().default("/webhook"),
   PORT: z
@@ -44,6 +49,7 @@ const configSchema = z.object({
       if (Number.isNaN(num)) throw new Error("PORT must be a number");
       return num;
     }),
+  RAILWAY_PUBLIC_DOMAIN: z.string().optional(),
   TURSO_DATABASE_URL: z.string().optional(),
   TURSO_AUTH_TOKEN: z.string().optional(),
 });
