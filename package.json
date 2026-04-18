@@ -11,6 +11,7 @@
   "dependencies": {
     "@libsql/client": "^0.15.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@supabase/supabase-js": "^2.103.3",
     "dotenv": "^16.5.0",
     "grammy": "^1.35.1",
     "openai": "^4.95.1",

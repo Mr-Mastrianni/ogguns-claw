@@ -4,13 +4,14 @@ import { logger } from "./utils/logger.js";
 import { AgentLoop } from "./agent/loop.js";
 import { OpenAICompatibleClient } from "./llm/client.js";
 import { memory } from "./memory/turso.js";
+import { supabaseMemory } from "./memory/supabase.js";
 import { transcriptionClient } from "./voice/transcription.js";
 import { elevenlabs } from "./voice/elevenlabs.js";
 
 export function createBot(): Bot {
   const bot = new Bot(config.TELEGRAM_BOT_TOKEN);
   const llm = new OpenAICompatibleClient();
-  const agent = new AgentLoop(llm, memory);
+  const agent = new AgentLoop(llm, memory, supabaseMemory);
 
   // Middleware: whitelist check — silently ignore unauthorized users
   bot.use(async (ctx, next) => {

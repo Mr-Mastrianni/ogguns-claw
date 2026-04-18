@@ -41,6 +41,16 @@ const configSchema = z.object({
   ELEVENLABS_API_KEY: z.string().optional(),
   ELEVENLABS_VOICE_ID: z.string().default("XB0fDUnXU5powFXDhCwa"),
   ELEVENLABS_MODEL_ID: z.string().default("eleven_multilingual_v2"),
+  // Embeddings (for semantic memory)
+  EMBEDDING_PROVIDER: z.enum(["jina", "openai", "nomic"]).default("jina"),
+  JINA_API_KEY: z.string().optional(),
+  JINA_MODEL: z.string().default("jina-embeddings-v3"),
+  OPENAI_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
+  NOMIC_API_KEY: z.string().optional(),
+  NOMIC_MODEL: z.string().default("nomic-embed-text-v1.5"),
+  // Supabase (semantic + episodic memory)
+  SUPABASE_URL: z.string().optional(),
+  SUPABASE_SERVICE_KEY: z.string().optional(),
   // MCP
   MCP_CONFIG_PATH: z.string().default("./mcp.json"),
   // General

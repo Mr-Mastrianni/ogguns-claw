@@ -3,9 +3,10 @@ import { logger } from "../utils/logger.js";
 import { LLMClient, LLMMessage, ToolResultBlock } from "../llm/types.js";
 import { toolRegistry } from "../tools/registry.js";
 import { MemoryStore } from "../memory/types.js";
+import { SupabaseMemory } from "../memory/supabase.js";
 import { AgentTurnResult } from "./types.js";
 
-const SYSTEM_PROMPT = `You are Gravity Claw, a personal AI assistant. You help the user with tasks by thinking step by step and using tools when needed.
+const SYSTEM_PROMPT_BASE = `You are Gravity Claw, a personal AI assistant. You help the user with tasks by thinking step by step and using tools when needed.
 
 Rules:
 - Be concise but helpful.
@@ -17,18 +18,56 @@ Rules:
 export class AgentLoop {
   private llm: LLMClient;
   private memory: MemoryStore;
+  private semanticMemory: SupabaseMemory;
 
-  constructor(llm: LLMClient, memory: MemoryStore) {
+  constructor(llm: LLMClient, memory: MemoryStore, semanticMemory: SupabaseMemory) {
     this.llm = llm;
     this.memory = memory;
+    this.semanticMemory = semanticMemory;
   }
 
   async run(userId: number, userMessage: string): Promise<AgentTurnResult> {
-    // Load recent memory for context
+    // 1. Load recent short-term memory (Turso)
     const recentHistory = await this.memory.getRecentHistory(userId, 10);
     const historyMessages: LLMMessage[] = recentHistory
       .reverse()
       .map((h) => ({ role: h.role, content: h.content }));
+
+    // 2. Semantic retrieval: find relevant past conversations
+    let memoryContext = "";
+    if (this.semanticMemory.enabled) {
+      const [relevantMemories, userFacts] = await Promise.all([
+        this.semanticMemory.searchMemories(userId, userMessage, 5, 0.5),
+        this.semanticMemory.getUserFacts(userId),
+      ]);
+
+      const memoryLines: string[] = [];
+
+      if (userFacts.length > 0) {
+        memoryLines.push("Facts about the user:");
+        for (const f of userFacts.slice(0, 10)) {
+          memoryLines.push(`- ${f.fact_key}: ${f.fact_value}`);
+        }
+      }
+
+      if (relevantMemories.length > 0) {
+        memoryLines.push("Relevant past conversations:");
+        for (const m of relevantMemories) {
+          const date = new Date(m.created_at).toLocaleDateString();
+          memoryLines.push(`- [${date}] ${m.role}: ${m.content}`);
+        }
+      }
+
+      if (memoryLines.length > 0) {
+        memoryContext = memoryLines.join("\n");
+      }
+    }
+
+    // 3. Build system prompt with memories
+    let systemPrompt = SYSTEM_PROMPT_BASE;
+    if (memoryContext) {
+      systemPrompt += `\n\n${memoryContext}`;
+    }
 
     const messages: LLMMessage[] = [
       ...historyMessages,
@@ -49,7 +88,7 @@ export class AgentLoop {
 
       const response = await this.llm.sendMessage(
         [
-          { role: "user", content: SYSTEM_PROMPT },
+          { role: "user", content: systemPrompt },
           ...messages,
         ],
         tools
@@ -126,7 +165,7 @@ export class AgentLoop {
       }
     }
 
-    // Persist to memory
+    // 4. Persist to short-term memory (Turso)
     await this.memory.addEntry({
       userId,
       role: "user",
@@ -140,6 +179,21 @@ export class AgentLoop {
       });
     }
 
+    // 5. Persist to episodic semantic memory (Supabase)
+    if (this.semanticMemory.enabled) {
+      await Promise.all([
+        this.semanticMemory.storeMemory(userId, "user", userMessage),
+        this.semanticMemory.storeMemory(userId, "assistant", finalResponse),
+      ]);
+
+      // 6. Extract and store facts (lightweight, non-blocking)
+      this.extractFacts(userId, userMessage, finalResponse).catch((err) => {
+        logger.error("Fact extraction failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+
     return {
       responseText: finalResponse,
       iterationsUsed: iterations,
@@ -147,5 +201,54 @@ export class AgentLoop {
       totalInputTokens,
       totalOutputTokens,
     };
+  }
+
+  private async extractFacts(
+    userId: number,
+    userMessage: string,
+    assistantResponse: string
+  ): Promise<void> {
+    if (!this.semanticMemory.enabled) return;
+
+    const extractionPrompt = `Extract any new facts about the user from this conversation turn. Only output facts that are genuinely new or updated. Output as a JSON array of objects with fields: fact_type (preference|biography|goal|relationship|habit), fact_key (short label), fact_value (the fact).
+
+If no new facts, output an empty array [].
+
+User: ${userMessage}
+Assistant: ${assistantResponse}`;
+
+    try {
+      const result = await this.llm.sendMessage(
+        [{ role: "user", content: extractionPrompt }],
+        []
+      );
+
+      const jsonMatch = result.text.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) return;
+
+      const facts = JSON.parse(jsonMatch[0]) as Array<{
+        fact_type: string;
+        fact_key: string;
+        fact_value: string;
+      }>;
+
+      for (const fact of facts) {
+        if (fact.fact_key && fact.fact_value) {
+          await this.semanticMemory.upsertFact(
+            userId,
+            fact.fact_type,
+            fact.fact_key,
+            fact.fact_value
+          );
+        }
+      }
+
+      logger.info("Facts extracted", { count: facts.length, userId });
+    } catch (err) {
+      // Silent fail — fact extraction is best-effort
+      logger.debug("Fact extraction error", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 }
