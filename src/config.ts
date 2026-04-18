@@ -8,7 +8,6 @@ const isRailway = !!process.env.RAILWAY_PUBLIC_DOMAIN;
 
 const configSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(1, "TELEGRAM_BOT_TOKEN is required"),
-  OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY is required"),
   ALLOWED_USER_IDS: z
     .string()
     .min(1, "ALLOWED_USER_IDS is required")
@@ -25,7 +24,14 @@ const configSchema = z.object({
           return num;
         })
     ),
-  LLM_MODEL: z.string().default("minimax/minimax-m2.5:free"),
+  LLM_PROVIDER: z.enum(["openrouter", "nvidia"]).default("nvidia"),
+  // OpenRouter
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL: z.string().default("minimax/minimax-m2.5:free"),
+  // NVIDIA NIM
+  NVIDIA_API_KEY: z.string().optional(),
+  NVIDIA_MODEL: z.string().default("minimaxai/minimax-m2.7"),
+  // General
   MAX_AGENT_ITERATIONS: z
     .string()
     .default("10")

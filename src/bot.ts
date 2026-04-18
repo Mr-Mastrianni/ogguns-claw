@@ -2,12 +2,12 @@ import { Bot, webhookCallback } from "grammy";
 import { config } from "./config.js";
 import { logger } from "./utils/logger.js";
 import { AgentLoop } from "./agent/loop.js";
-import { OpenRouterClient } from "./llm/client.js";
+import { OpenAICompatibleClient } from "./llm/client.js";
 import { memory } from "./memory/turso.js";
 
 export function createBot(): Bot {
   const bot = new Bot(config.TELEGRAM_BOT_TOKEN);
-  const llm = new OpenRouterClient();
+  const llm = new OpenAICompatibleClient();
   const agent = new AgentLoop(llm, memory);
 
   // Middleware: whitelist check — silently ignore unauthorized users

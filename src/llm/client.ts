@@ -4,21 +4,40 @@ import { logger } from "../utils/logger.js";
 import { ToolDefinition } from "../tools/types.js";
 import { LLMClient, LLMMessage, LLMResponse, ToolUseBlock } from "./types.js";
 
-export class OpenRouterClient implements LLMClient {
+export class OpenAICompatibleClient implements LLMClient {
   private client: OpenAI;
   private model: string;
 
   constructor() {
-    this.client = new OpenAI({
-      apiKey: config.OPENROUTER_API_KEY,
-      baseURL: "https://openrouter.ai/api/v1",
-      defaultHeaders: {
-        "HTTP-Referer": "https://github.com/gravity-claw",
-        "X-Title": "Gravity Claw",
-      },
-    });
-    this.model = config.LLM_MODEL;
-    logger.info(`OpenRouterClient initialized with model: ${this.model}`);
+    if (config.LLM_PROVIDER === "nvidia") {
+      if (!config.NVIDIA_API_KEY) {
+        throw new Error(
+          "NVIDIA_API_KEY is required when LLM_PROVIDER=nvidia. Get one at https://build.nvidia.com"
+        );
+      }
+      this.client = new OpenAI({
+        apiKey: config.NVIDIA_API_KEY,
+        baseURL: "https://integrate.api.nvidia.com/v1",
+      });
+      this.model = config.NVIDIA_MODEL;
+      logger.info(`NVIDIA NIM client initialized with model: ${this.model}`);
+    } else {
+      if (!config.OPENROUTER_API_KEY) {
+        throw new Error(
+          "OPENROUTER_API_KEY is required when LLM_PROVIDER=openrouter. Get one at https://openrouter.ai/keys"
+        );
+      }
+      this.client = new OpenAI({
+        apiKey: config.OPENROUTER_API_KEY,
+        baseURL: "https://openrouter.ai/api/v1",
+        defaultHeaders: {
+          "HTTP-Referer": "https://github.com/gravity-claw",
+          "X-Title": "Gravity Claw",
+        },
+      });
+      this.model = config.OPENROUTER_MODEL;
+      logger.info(`OpenRouter client initialized with model: ${this.model}`);
+    }
   }
 
   async sendMessage(
@@ -39,7 +58,8 @@ export class OpenRouterClient implements LLMClient {
       content: msg.content,
     }));
 
-    logger.debug("Sending request to OpenRouter", {
+    logger.debug("Sending LLM request", {
+      provider: config.LLM_PROVIDER,
       model: this.model,
       messageCount: messages.length,
       toolCount: tools.length,
@@ -72,7 +92,8 @@ export class OpenRouterClient implements LLMClient {
         }
       : null;
 
-    logger.debug("Received response from OpenRouter", {
+    logger.debug("Received LLM response", {
+      provider: config.LLM_PROVIDER,
       finishReason: choice.finish_reason,
       inputTokens: usage?.inputTokens,
       outputTokens: usage?.outputTokens,
