@@ -4,6 +4,7 @@ import { LLMClient, LLMMessage, ToolResultBlock } from "../llm/types.js";
 import { toolRegistry } from "../tools/registry.js";
 import { MemoryStore } from "../memory/types.js";
 import { SupabaseMemory } from "../memory/supabase.js";
+import { profileManager } from "../memory/profile.js";
 import { AgentTurnResult } from "./types.js";
 
 const SYSTEM_PROMPT_BASE = `You are Gravity Claw, a personal AI assistant. You help the user with tasks by thinking step by step and using tools when needed.
@@ -33,38 +34,44 @@ export class AgentLoop {
       .reverse()
       .map((h) => ({ role: h.role, content: h.content }));
 
-    // 2. Semantic retrieval: find relevant past conversations
-    let memoryContext = "";
+    // 2. Load user profile (compact, high-priority context)
+    let profileParagraph = "";
+    let profileQuestion: string | undefined;
     if (this.semanticMemory.enabled) {
-      const [relevantMemories, userFacts] = await Promise.all([
-        this.semanticMemory.searchMemories(userId, userMessage, 5, 0.5),
-        this.semanticMemory.getUserFacts(userId),
-      ]);
+      const profileFacts = await profileManager.loadProfile(userId);
+      profileParagraph = profileManager.formatProfileParagraph(profileFacts);
 
-      const memoryLines: string[] = [];
-
-      if (userFacts.length > 0) {
-        memoryLines.push("Facts about the user:");
-        for (const f of userFacts.slice(0, 10)) {
-          memoryLines.push(`- ${f.fact_key}: ${f.fact_value}`);
-        }
-      }
-
-      if (relevantMemories.length > 0) {
-        memoryLines.push("Relevant past conversations:");
-        for (const m of relevantMemories) {
-          const date = new Date(m.created_at).toLocaleDateString();
-          memoryLines.push(`- [${date}] ${m.role}: ${m.content}`);
-        }
-      }
-
-      if (memoryLines.length > 0) {
-        memoryContext = memoryLines.join("\n");
+      // Decide if we should ask a profile question (only on simple, non-tool queries)
+      if (profileManager.shouldAskQuestion(profileFacts)) {
+        profileQuestion = profileManager.getNextQuestion(profileFacts) || undefined;
       }
     }
 
-    // 3. Build system prompt with memories
+    // 3. Semantic retrieval: find relevant past conversations
+    let memoryContext = "";
+    if (this.semanticMemory.enabled) {
+      const relevantMemories = await this.semanticMemory.searchMemories(
+        userId,
+        userMessage,
+        5,
+        0.5
+      );
+
+      if (relevantMemories.length > 0) {
+        const lines = ["Relevant past conversations:"];
+        for (const m of relevantMemories) {
+          const date = new Date(m.created_at).toLocaleDateString();
+          lines.push(`- [${date}] ${m.role}: ${m.content}`);
+        }
+        memoryContext = lines.join("\n");
+      }
+    }
+
+    // 4. Build system prompt: profile first, then episodic memories
     let systemPrompt = SYSTEM_PROMPT_BASE;
+    if (profileParagraph) {
+      systemPrompt += `\n\n${profileParagraph}`;
+    }
     if (memoryContext) {
       systemPrompt += `\n\n${memoryContext}`;
     }
@@ -200,6 +207,7 @@ export class AgentLoop {
       stoppedDueToLimit,
       totalInputTokens,
       totalOutputTokens,
+      profileQuestion,
     };
   }
 
@@ -211,6 +219,8 @@ export class AgentLoop {
     if (!this.semanticMemory.enabled) return;
 
     const extractionPrompt = `Extract any new facts about the user from this conversation turn. Only output facts that are genuinely new or updated. Output as a JSON array of objects with fields: fact_type (preference|biography|goal|relationship|habit), fact_key (short label), fact_value (the fact).
+
+Use these standard keys when applicable: name, location, profession, communication_style, goals, interests, schedule, dietary, tech_stack, birthday. For other facts, use a concise descriptive key.
 
 If no new facts, output an empty array [].
 

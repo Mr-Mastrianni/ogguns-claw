@@ -41,6 +41,9 @@ export function createBot(): Bot {
     try {
       const result = await agent.run(userId, text);
       await sendAgentReply(ctx, result);
+      if (result.profileQuestion) {
+        await ctx.reply(result.profileQuestion);
+      }
     } catch (err) {
       await handleError(ctx, err);
     }
@@ -102,6 +105,11 @@ export function createBot(): Bot {
         }
       } else {
         await sendAgentReply(ctx, result);
+      }
+
+      // Ask profile question if we have one (separate message so it feels natural)
+      if (result.profileQuestion) {
+        await ctx.reply(result.profileQuestion);
       }
     } catch (err) {
       await handleError(ctx, err);
