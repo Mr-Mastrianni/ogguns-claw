@@ -31,6 +31,12 @@ const configSchema = z.object({
   // NVIDIA NIM
   NVIDIA_API_KEY: z.string().optional(),
   NVIDIA_MODEL: z.string().default("minimaxai/minimax-m2.7"),
+  // Transcription
+  TRANSCRIPTION_PROVIDER: z.enum(["groq", "openai"]).default("groq"),
+  GROQ_API_KEY: z.string().optional(),
+  GROQ_TRANSCRIPTION_MODEL: z.string().default("whisper-large-v3"),
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_TRANSCRIPTION_MODEL: z.string().default("whisper-1"),
   // General
   MAX_AGENT_ITERATIONS: z
     .string()

@@ -4,6 +4,7 @@ import { logger } from "./utils/logger.js";
 import { AgentLoop } from "./agent/loop.js";
 import { OpenAICompatibleClient } from "./llm/client.js";
 import { memory } from "./memory/turso.js";
+import { transcriptionClient } from "./voice/transcription.js";
 
 export function createBot(): Bot {
   const bot = new Bot(config.TELEGRAM_BOT_TOKEN);
@@ -32,49 +33,107 @@ export function createBot(): Bot {
     const userId = ctx.from.id;
     const text = ctx.message.text;
 
-    logger.info(`Message from ${userId}: ${text}`);
-
-    // Send "typing" action
+    logger.info(`Text message from ${userId}: ${text}`);
     await ctx.replyWithChatAction("typing");
 
     try {
       const result = await agent.run(userId, text);
-
-      let replyText = result.responseText;
-      if (result.stoppedDueToLimit) {
-        replyText +=
-          "\n\n_(⚠️ Hit the safety iteration limit — this response may be incomplete.)_";
-      }
-
-      await ctx.reply(replyText, { parse_mode: "Markdown" });
-
-      logger.info("Reply sent", {
-        userId,
-        iterations: result.iterationsUsed,
-        inputTokens: result.totalInputTokens,
-        outputTokens: result.totalOutputTokens,
-      });
+      await sendAgentReply(ctx, result);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      logger.error("Error processing message", { userId, error: errorMessage });
-      // Send actual error to user for debugging (safe to expose — no secrets)
-      await ctx.reply(
-        `❌ Error: ${errorMessage}\n\n_If this persists, check Railway logs or try a different LLM model._`,
-        { parse_mode: "Markdown" }
-      );
+      await handleError(ctx, err);
     }
   });
 
-  // Handle non-text messages gracefully
+  // Handle voice messages
+  bot.on("message:voice", async (ctx) => {
+    const userId = ctx.from.id;
+    const voice = ctx.message.voice;
+
+    logger.info(`Voice message from ${userId}`, {
+      duration: voice.duration,
+      fileSize: voice.file_size,
+    });
+
+    await ctx.replyWithChatAction("typing");
+
+    try {
+      // Download voice file from Telegram
+      const file = await ctx.api.getFile(voice.file_id);
+      if (!file.file_path) {
+        await ctx.reply("❌ Could not download voice message.");
+        return;
+      }
+
+      const fileUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+
+      // Transcribe
+      const transcription = await transcriptionClient.transcribe(fileUrl);
+
+      if (!transcription || transcription.trim().length === 0) {
+        await ctx.reply("🎙️ I couldn't make out what you said. Try again?");
+        return;
+      }
+
+      // Repeat back what was said
+      await ctx.reply(`🎙️ You said: "${transcription}"`);
+
+      // Now process through agent as a normal text message
+      await ctx.replyWithChatAction("typing");
+      const result = await agent.run(userId, transcription);
+      await sendAgentReply(ctx, result);
+    } catch (err) {
+      await handleError(ctx, err);
+    }
+  });
+
+  // Handle non-text, non-voice messages gracefully
   bot.on("message", async (ctx) => {
-    if (!ctx.message.text) {
+    if (!ctx.message.text && !ctx.message.voice) {
       await ctx.reply(
-        "📝 I only understand text messages right now. Voice and other media are coming in a future level!"
+        "📝 I understand text and voice messages. Photos, videos, and other media coming in a future level!"
       );
     }
   });
 
   return bot;
+}
+
+async function sendAgentReply(
+  ctx: any,
+  result: {
+    responseText: string;
+    stoppedDueToLimit: boolean;
+    iterationsUsed: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+  }
+) {
+  let replyText = result.responseText;
+  if (result.stoppedDueToLimit) {
+    replyText +=
+      "\n\n_(⚠️ Hit the safety iteration limit — this response may be incomplete.)_";
+  }
+
+  await ctx.reply(replyText, { parse_mode: "Markdown" });
+
+  logger.info("Reply sent", {
+    userId: ctx.from.id,
+    iterations: result.iterationsUsed,
+    inputTokens: result.totalInputTokens,
+    outputTokens: result.totalOutputTokens,
+  });
+}
+
+async function handleError(ctx: any, err: unknown) {
+  const errorMessage = err instanceof Error ? err.message : String(err);
+  logger.error("Error processing message", {
+    userId: ctx.from?.id,
+    error: errorMessage,
+  });
+  await ctx.reply(
+    `❌ Error: ${errorMessage}\n\n_If this persists, check Railway logs._`,
+    { parse_mode: "Markdown" }
+  );
 }
 
 export function createWebhookHandler(bot: Bot) {
