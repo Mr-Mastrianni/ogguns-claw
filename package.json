@@ -1,0 +1,26 @@
+{
+  "name": "gravity-claw",
+  "version": "0.1.0",
+  "description": "A lean, secure, personal AI agent — inspired by OpenClaw, built from scratch.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.15.4",
+    "dotenv": "^16.5.0",
+    "grammy": "^1.35.1",
+    "openai": "^4.95.1",
+    "zod": "^3.24.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
