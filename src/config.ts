@@ -37,6 +37,12 @@ const configSchema = z.object({
   GROQ_TRANSCRIPTION_MODEL: z.string().default("whisper-large-v3"),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_TRANSCRIPTION_MODEL: z.string().default("whisper-1"),
+  // ElevenLabs TTS
+  ELEVENLABS_API_KEY: z.string().optional(),
+  ELEVENLABS_VOICE_ID: z.string().default("XB0fDUnXU5powFXDhCwa"),
+  ELEVENLABS_MODEL_ID: z.string().default("eleven_multilingual_v2"),
+  // MCP
+  MCP_CONFIG_PATH: z.string().default("./mcp.json"),
   // General
   MAX_AGENT_ITERATIONS: z
     .string()

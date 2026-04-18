@@ -2,6 +2,7 @@ import http from "http";
 import { createBot, createWebhookHandler } from "./bot.js";
 import { config } from "./config.js";
 import { logger } from "./utils/logger.js";
+import { mcpBridge } from "./mcp/bridge.js";
 
 function getWebhookUrl(): string | undefined {
   if (config.WEBHOOK_URL) return config.WEBHOOK_URL;
@@ -14,6 +15,9 @@ function getWebhookUrl(): string | undefined {
 async function main() {
   logger.info("🦞 Gravity Claw starting up...");
   logger.info(`Mode: ${config.BOT_MODE}`);
+
+  // Initialize MCP bridge before starting the bot
+  await mcpBridge.initialize();
 
   const bot = createBot();
 
@@ -69,7 +73,9 @@ async function main() {
           logger.error(
             "Telegram API returned 401 Unauthorized. Your bot token is invalid or was revoked."
           );
-          logger.error("Fix: Message @BotFather, use /revoke, then paste the NEW token into Railway env vars.");
+          logger.error(
+            "Fix: Message @BotFather, use /revoke, then paste the NEW token into Railway env vars."
+          );
         } else {
           logger.error("Failed to set webhook:", { error: msg });
         }
@@ -78,8 +84,9 @@ async function main() {
     });
 
     // Graceful shutdown
-    const shutdown = (signal: string) => {
+    const shutdown = async (signal: string) => {
       logger.info(`Received ${signal}, shutting down gracefully...`);
+      await mcpBridge.shutdown();
       server.close(() => {
         bot.stop();
         process.exit(0);
@@ -105,7 +112,9 @@ async function main() {
         logger.error(
           "Telegram API returned 401 Unauthorized. Your bot token is invalid or was revoked."
         );
-        logger.error("Fix: Message @BotFather, use /revoke, then paste the NEW token into your .env file.");
+        logger.error(
+          "Fix: Message @BotFather, use /revoke, then paste the NEW token into your .env file."
+        );
       } else {
         logger.error("Failed to start bot:", { error: msg });
       }
@@ -113,8 +122,9 @@ async function main() {
     }
 
     // Graceful shutdown
-    const shutdown = (signal: string) => {
+    const shutdown = async (signal: string) => {
       logger.info(`Received ${signal}, shutting down gracefully...`);
+      await mcpBridge.shutdown();
       bot.stop();
       process.exit(0);
     };

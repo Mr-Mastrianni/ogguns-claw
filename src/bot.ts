@@ -1,10 +1,11 @@
-import { Bot, webhookCallback } from "grammy";
+import { Bot, webhookCallback, InputFile } from "grammy";
 import { config } from "./config.js";
 import { logger } from "./utils/logger.js";
 import { AgentLoop } from "./agent/loop.js";
 import { OpenAICompatibleClient } from "./llm/client.js";
 import { memory } from "./memory/turso.js";
 import { transcriptionClient } from "./voice/transcription.js";
+import { elevenlabs } from "./voice/elevenlabs.js";
 
 export function createBot(): Bot {
   const bot = new Bot(config.TELEGRAM_BOT_TOKEN);
@@ -77,10 +78,30 @@ export function createBot(): Bot {
       // Repeat back what was said
       await ctx.reply(`🎙️ You said: "${transcription}"`);
 
-      // Now process through agent as a normal text message
+      // Now process through agent
       await ctx.replyWithChatAction("typing");
       const result = await agent.run(userId, transcription);
-      await sendAgentReply(ctx, result);
+
+      // If ElevenLabs is enabled, reply with voice; otherwise text
+      if (elevenlabs.isEnabled()) {
+        try {
+          const audioPath = await elevenlabs.synthesize(result.responseText);
+          await ctx.replyWithVoice(new InputFile(audioPath));
+          elevenlabs.cleanup(audioPath);
+          logger.info("Voice reply sent", {
+            userId,
+            iterations: result.iterationsUsed,
+          });
+        } catch (ttsErr) {
+          logger.error("TTS failed, falling back to text reply", {
+            error:
+              ttsErr instanceof Error ? ttsErr.message : String(ttsErr),
+          });
+          await sendAgentReply(ctx, result);
+        }
+      } else {
+        await sendAgentReply(ctx, result);
+      }
     } catch (err) {
       await handleError(ctx, err);
     }
